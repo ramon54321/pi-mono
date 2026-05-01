@@ -66,6 +66,13 @@ export interface CompactionSummaryMessage {
 	timestamp: number;
 }
 
+/** Message type for the active files context section */
+export interface ActiveFilesMessage {
+	role: "activeFiles";
+	files: Array<{ path: string; content: string }>;
+	timestamp: number;
+}
+
 // Extend CustomAgentMessages via declaration merging
 declare module "@mariozechner/pi-agent-core" {
 	interface CustomAgentMessages {
@@ -73,6 +80,7 @@ declare module "@mariozechner/pi-agent-core" {
 		custom: CustomMessage;
 		branchSummary: BranchSummaryMessage;
 		compactionSummary: CompactionSummaryMessage;
+		activeFiles: ActiveFilesMessage;
 	}
 }
 
@@ -116,6 +124,14 @@ export function createCompactionSummaryMessage(
 		summary: summary,
 		tokensBefore,
 		timestamp: new Date(timestamp).getTime(),
+	};
+}
+
+export function createActiveFilesMessage(files: Array<{ path: string; content: string }>): ActiveFilesMessage {
+	return {
+		role: "activeFiles",
+		files,
+		timestamp: Date.now(),
 	};
 }
 
@@ -181,6 +197,18 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 						],
 						timestamp: m.timestamp,
 					};
+				case "activeFiles": {
+					let text = "<files>\n";
+					for (const { path, content } of m.files) {
+						text += `\n## ${path}\n<content>\n${content}\n</content>\n`;
+					}
+					text += "</files>";
+					return {
+						role: "user",
+						content: [{ type: "text" as const, text }],
+						timestamp: m.timestamp,
+					};
+				}
 				case "user":
 				case "assistant":
 				case "toolResult":

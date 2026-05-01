@@ -3094,6 +3094,10 @@ export class InteractiveMode {
 				// Tool results are rendered inline with tool calls, handled separately
 				break;
 			}
+			case "activeFiles": {
+				// Active files context is injected into the LLM context only, not displayed in TUI
+				break;
+			}
 			default: {
 				const _exhaustive: never = message;
 			}

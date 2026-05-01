@@ -50,6 +50,8 @@ export interface ReadToolOptions {
 	autoResizeImages?: boolean;
 	/** Custom operations for file reading. Default: local filesystem */
 	operations?: ReadOperations;
+	/** Called when a text file is successfully read, to register it as an active file */
+	onActiveFile?: (path: string) => void;
 }
 
 function formatReadCall(
@@ -246,6 +248,10 @@ export function createReadToolDefinition(
 
 							if (aborted) return;
 							signal?.removeEventListener("abort", onAbort);
+							// Register text files as active for context injection
+							if (!mimeType && options?.onActiveFile) {
+								options.onActiveFile(absolutePath);
+							}
 							resolve({ content, details });
 						} catch (error: any) {
 							signal?.removeEventListener("abort", onAbort);

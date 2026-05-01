@@ -13,7 +13,7 @@
  * Modes use this class and add their own I/O layer on top.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import type {
 	Agent,
@@ -70,6 +70,7 @@ import {
 } from "./extensions/index.js";
 import { emitSessionShutdownEvent } from "./extensions/runner.js";
 import type { BashExecutionMessage, CustomMessage } from "./messages.js";
+import { createActiveFilesMessage } from "./messages.js";
 import type { ModelRegistry } from "./model-registry.js";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.js";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.js";
@@ -305,6 +306,9 @@ export class AgentSession {
 	private _baseSystemPrompt = "";
 	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
 
+	// Active files context - files registered by the read tool, injected fresh each turn
+	private _activeFiles: Set<string> = new Set();
+
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
 		this.sessionManager = config.sessionManager;
@@ -396,29 +400,45 @@ export class AgentSession {
 
 		this.agent.afterToolCall = async ({ toolCall, args, result, isError }) => {
 			const runner = this._extensionRunner;
-			if (!runner.hasHandlers("tool_result")) {
-				return undefined;
+
+			if (runner.hasHandlers("tool_result")) {
+				const hookResult = await runner.emitToolResult({
+					type: "tool_result",
+					toolName: toolCall.name,
+					toolCallId: toolCall.id,
+					input: args as Record<string, unknown>,
+					content: result.content,
+					details: result.details,
+					isError,
+				});
+
+				if (!hookResult) {
+					return undefined;
+				}
+
+				// Strip content from read tool results — content is now in active files section
+				let content = hookResult.content;
+				if (toolCall.name === "read") {
+					content = [{ type: "text", text: `Read file` }];
+				}
+
+				return {
+					content,
+					details: hookResult.details,
+					isError: hookResult.isError ?? isError,
+				};
 			}
 
-			const hookResult = await runner.emitToolResult({
-				type: "tool_result",
-				toolName: toolCall.name,
-				toolCallId: toolCall.id,
-				input: args as Record<string, unknown>,
-				content: result.content,
-				details: result.details,
-				isError,
-			});
-
-			if (!hookResult) {
-				return undefined;
+			// No handlers — still strip content from read tool results
+			if (toolCall.name === "read") {
+				return {
+					content: [{ type: "text", text: `Read file` }],
+					details: result.details,
+					isError,
+				};
 			}
 
-			return {
-				content: hookResult.content,
-				details: hookResult.details,
-				isError: hookResult.isError ?? isError,
-			};
+			return undefined;
 		};
 	}
 
@@ -609,6 +629,65 @@ export class AgentSession {
 		}
 		return undefined;
 	}
+
+	// =========================================================================
+	// Active Files Context
+	// =========================================================================
+
+	/**
+	 * Inject active files content into the message context.
+	 * Reads fresh file content from disk, formats as <files> section,
+	 * and removes read toolResult messages from the context.
+	 * Called by the Agent's transformContext pipeline.
+	 */
+	public _injectActiveFiles(messages: AgentMessage[]): AgentMessage[] {
+		// Read fresh content for all active files
+		const files: { path: string; content: string }[] = [];
+		for (const path of this._activeFiles) {
+			try {
+				const stats = statSync(path);
+				if (stats.isFile()) {
+					const content = readFileSync(path, "utf-8");
+					files.push({ path, content });
+				}
+			} catch {
+				// File deleted or inaccessible, skip
+			}
+		}
+
+		// Convert active files to AgentMessage
+		const activeFilesMsg = createActiveFilesMessage(files);
+
+		// Filter out read toolResult messages from context
+		const filtered = messages.filter((m) => !(m.role === "toolResult" && (m as any).toolName === "read"));
+
+		// Insert active files message at the end (most recent in context)
+		filtered.push(activeFilesMsg);
+
+		return filtered;
+	}
+
+	/** Register a file path as active (called by the read tool via callback) */
+	registerActiveFile(path: string): void {
+		this._activeFiles.add(path);
+	}
+
+	/**
+	 * Remove a file from active files (called when a file is no longer relevant).
+	 * Generally not needed — files accumulate across the session.
+	 */
+	unregisterActiveFile(path: string): void {
+		this._activeFiles.delete(path);
+	}
+
+	/** Get all active file paths for debugging */
+	getActiveFiles(): string[] {
+		return Array.from(this._activeFiles);
+	}
+
+	// =========================================================================
+	// Session lifecycle
+	// =========================================================================
 
 	/** Emit extension events based on agent events */
 	private async _emitExtensionEvent(event: AgentEvent): Promise<void> {
@@ -2331,7 +2410,7 @@ export class AgentSession {
 					]),
 				)
 			: createAllToolDefinitions(this._cwd, {
-					read: { autoResizeImages },
+					read: { autoResizeImages, onActiveFile: (path) => this.registerActiveFile(path) },
 					bash: { commandPrefix: shellCommandPrefix, shellPath },
 				});
 

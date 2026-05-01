@@ -72,8 +72,12 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 			prompt += formatSkillsForPrompt(skills);
 		}
 
+		// Add active files context note
+		prompt += "\n\n# Active Files Context";
+		prompt +=
+			"\n\nWhen the assistant reads files during a turn, their contents appear in a `<files>` section at the end of the context. This section contains the latest file contents read during the current turn. If a file is not listed here, the assistant should use the `read` tool to get its contents. Active files are transient and do not persist across turns.";
 		// Add date and working directory last
-		prompt += `\nCurrent date: ${date}`;
+		prompt += `\n\nCurrent date: ${date}`;
 		prompt += `\nCurrent working directory: ${promptCwd}`;
 
 		return prompt;
@@ -164,8 +168,13 @@ Pi documentation (read only when the user asks about pi itself, its SDK, extensi
 		prompt += formatSkillsForPrompt(skills);
 	}
 
+	// Add active files context note (informs the model about the <files> section)
+	prompt += "\n\n# Active Files Context";
+	prompt +=
+		"\n\nWhen the assistant reads files during a turn, their contents appear in a `<files>` section at the end of the context. This section contains the latest file contents read during the current turn. If a file is not listed here, the assistant should use the `read` tool to get its contents. Active files are transient and do not persist across turns.";
+
 	// Add date and working directory last
-	prompt += `\nCurrent date: ${date}`;
+	prompt += `\n\nCurrent date: ${date}`;
 	prompt += `\nCurrent working directory: ${promptCwd}`;
 
 	return prompt;

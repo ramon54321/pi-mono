@@ -357,9 +357,8 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		},
 		sessionId: sessionManager.getSessionId(),
 		transformContext: async (messages) => {
-			const runner = extensionRunnerRef.current;
-			if (!runner) return messages;
-			return runner.emitContext(messages);
+			// Placeholder - will be overridden after session creation
+			return messages;
 		},
 		steeringMode: settingsManager.getSteeringMode(),
 		followUpMode: settingsManager.getFollowUpMode(),
@@ -396,6 +395,20 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,
 	});
+
+	// Wire up active files context injection in the transformContext pipeline
+	// This must happen after session creation so we can access session methods
+	const originalTransformContext = agent.transformContext;
+	agent.transformContext = async (messages, signal) => {
+		// Inject active files first (reads fresh content, filters read toolResults)
+		const withActiveFiles = session._injectActiveFiles(messages);
+		// Then delegate to the original transformContext (extension runner)
+		if (originalTransformContext) {
+			return originalTransformContext(withActiveFiles, signal);
+		}
+		return withActiveFiles;
+	};
+
 	const extensionsResult = resourceLoader.getExtensions();
 
 	return {
