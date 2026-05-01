@@ -3,12 +3,16 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
+
+export type DumpContextFormat = "off" | "json" | "text";
+
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.js";
 
 export interface CompactionSettings {
 	enabled?: boolean; // default: true
 	reserveTokens?: number; // default: 16384
 	keepRecentTokens?: number; // default: 20000
+	dumpContext?: DumpContextFormat; // default: "off"
 }
 
 export interface BranchSummarySettings {
@@ -686,12 +690,39 @@ export class SettingsManager {
 		return this.settings.compaction?.keepRecentTokens ?? 20000;
 	}
 
-	getCompactionSettings(): { enabled: boolean; reserveTokens: number; keepRecentTokens: number } {
+	getCompactionSettings(): {
+		enabled: boolean;
+		reserveTokens: number;
+		keepRecentTokens: number;
+		dumpContext: DumpContextFormat;
+	} {
 		return {
 			enabled: this.getCompactionEnabled(),
 			reserveTokens: this.getCompactionReserveTokens(),
 			keepRecentTokens: this.getCompactionKeepRecentTokens(),
+			dumpContext: this.getDumpContextFormat(),
 		};
+	}
+
+	getDumpContextFormat(): DumpContextFormat {
+		const raw = this.settings.compaction?.dumpContext;
+		if (raw === "off" || raw === "json" || raw === "text") {
+			return raw;
+		}
+		// Handle legacy boolean value: true → "json", false → "off"
+		if (typeof raw === "boolean") {
+			return raw ? "json" : "off";
+		}
+		return "off";
+	}
+
+	setDumpContextFormat(format: DumpContextFormat): void {
+		if (!this.globalSettings.compaction) {
+			this.globalSettings.compaction = {};
+		}
+		this.globalSettings.compaction.dumpContext = format;
+		this.markModified("compaction", "dumpContext");
+		this.save();
 	}
 
 	getBranchSummarySettings(): { reserveTokens: number; skipPrompt: boolean } {

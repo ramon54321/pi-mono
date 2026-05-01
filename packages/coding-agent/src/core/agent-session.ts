@@ -2016,6 +2016,10 @@ export class AgentSession {
 		this.settingsManager.setCompactionEnabled(enabled);
 	}
 
+	setDumpContextFormat(format: "off" | "json" | "text"): void {
+		this.settingsManager.setDumpContextFormat(format);
+	}
+
 	/** Whether auto-compaction is enabled */
 	get autoCompactionEnabled(): boolean {
 		return this.settingsManager.getCompactionEnabled();

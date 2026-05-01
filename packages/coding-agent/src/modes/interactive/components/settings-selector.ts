@@ -54,6 +54,7 @@ export interface SettingsConfig {
 	quietStartup: boolean;
 	clearOnShrink: boolean;
 	showTerminalProgress: boolean;
+	dumpContext: "off" | "json" | "text";
 	warnings: WarningSettings;
 }
 
@@ -81,6 +82,7 @@ export interface SettingsCallbacks {
 	onQuietStartupChange: (enabled: boolean) => void;
 	onClearOnShrinkChange: (enabled: boolean) => void;
 	onShowTerminalProgressChange: (enabled: boolean) => void;
+	onDumpContextChange: (format: "off" | "json" | "text") => void;
 	onWarningsChange: (warnings: WarningSettings) => void;
 	onCancel: () => void;
 }
@@ -445,6 +447,16 @@ export class SettingsSelectorComponent extends Container {
 			values: ["true", "false"],
 		});
 
+		// Dump context format toggle (insert after terminal-progress)
+		const terminalProgressIndex = items.findIndex((item) => item.id === "terminal-progress");
+		items.splice(terminalProgressIndex + 1, 0, {
+			id: "dump-context",
+			label: "Dump context",
+			description: "Write LLM context to .pi-debug/ before each LLM call",
+			currentValue: config.dumpContext,
+			values: ["off", "json", "text"],
+		});
+
 		// Add borders
 		this.addChild(new DynamicBorder());
 
@@ -515,6 +527,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "terminal-progress":
 						callbacks.onShowTerminalProgressChange(newValue === "true");
+						break;
+					case "dump-context":
+						callbacks.onDumpContextChange(newValue as "off" | "json" | "text");
 						break;
 				}
 			},

@@ -260,6 +260,15 @@ async function streamAssistantResponse(
 		tools: context.tools,
 	};
 
+	// Call onContext hook (for debugging/dumping the context before it's sent to the LLM)
+	if (config.onContext) {
+		try {
+			await config.onContext(llmContext);
+		} catch {
+			// onContext must not throw or break the LLM call
+		}
+	}
+
 	const streamFunction = streamFn || streamSimple;
 
 	// Resolve API key (important for expiring tokens)

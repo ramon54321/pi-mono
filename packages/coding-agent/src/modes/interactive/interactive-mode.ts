@@ -3769,6 +3769,7 @@ export class InteractiveMode {
 					quietStartup: this.settingsManager.getQuietStartup(),
 					clearOnShrink: this.settingsManager.getClearOnShrink(),
 					showTerminalProgress: this.settingsManager.getShowTerminalProgress(),
+					dumpContext: this.settingsManager.getDumpContextFormat(),
 					warnings: this.settingsManager.getWarnings(),
 				},
 				{
@@ -3882,6 +3883,9 @@ export class InteractiveMode {
 					},
 					onShowTerminalProgressChange: (enabled) => {
 						this.settingsManager.setShowTerminalProgress(enabled);
+					},
+					onDumpContextChange: (format) => {
+						this.session.setDumpContextFormat(format);
 					},
 					onWarningsChange: (warnings) => {
 						this.settingsManager.setWarnings(warnings);

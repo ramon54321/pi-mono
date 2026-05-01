@@ -1,6 +1,7 @@
 import type {
 	AssistantMessage,
 	AssistantMessageEvent,
+	Context,
 	ImageContent,
 	Message,
 	Model,
@@ -221,6 +222,20 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * The hook receives the agent abort signal and is responsible for honoring it.
 	 */
 	afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>;
+
+	/**
+	 * Called with the fully assembled LLM context right before each LLM call.
+	 *
+	 * Use this for debugging, logging, or dumping the context that will be sent to the LLM.
+	 * The context includes the system prompt, all messages (after convertToLlm transformation),
+	 * and active tools.
+	 *
+	 * Contract: must not throw or reject. The hook is called in the async flow of the agent loop,
+	 * so errors here would break the LLM call.
+	 *
+	 * @param context - The full LLM context about to be sent
+	 */
+	onContext?: (context: Context) => void | Promise<void>;
 }
 
 /**

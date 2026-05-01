@@ -1,6 +1,7 @@
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Agent, type AgentMessage, type ThinkingLevel } from "@mariozechner/pi-agent-core";
-import { type Message, type Model, streamSimple } from "@mariozechner/pi-ai";
+import { type Context, type Message, type Model, streamSimple } from "@mariozechner/pi-ai";
 import { getAgentDir } from "../config.js";
 import { AgentSession } from "./agent-session.js";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.js";
@@ -310,6 +311,136 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 	const extensionRunnerRef: { current?: ExtensionRunner } = {};
 
+	// --- Context dump helpers ---
+
+	function contentToText(
+		content: string | Array<{ type: string; text?: string; data?: string; mimeType?: string }>,
+	): string {
+		if (typeof content === "string") {
+			return content;
+		}
+		return content
+			.map((block) => {
+				if (block.type === "text" && block.text) {
+					return block.text;
+				}
+				if (block.type === "image") {
+					return `[image:${block.mimeType}:${block.data?.length ?? 0}]`;
+				}
+				return "";
+			})
+			.join("\n");
+	}
+
+	function assistantContentToText(
+		content: Array<{ type: string; text?: string; thinking?: string; name?: string; arguments?: string }>,
+	): string {
+		return content
+			.map((block) => {
+				if (block.type === "text" && block.text) {
+					return block.text;
+				}
+				if (block.type === "thinking" && block.thinking) {
+					return block.thinking;
+				}
+				if (block.name) {
+					return `${block.name}:${block.arguments ?? ""}`;
+				}
+				return "";
+			})
+			.join("\n");
+	}
+
+	function messageToText(message: { role: string; content: string | Array<unknown> }): string {
+		if (message.role === "user") {
+			return contentToText(
+				message.content as string | Array<{ type: string; text?: string; data?: string; mimeType?: string }>,
+			);
+		}
+		if (message.role === "assistant") {
+			return assistantContentToText(
+				message.content as Array<{
+					type: string;
+					text?: string;
+					thinking?: string;
+					name?: string;
+					arguments?: string;
+				}>,
+			);
+		}
+		// toolResult
+		if (typeof message.content === "string") {
+			return `[${message.role}]\n${message.content}`;
+		}
+		return `[${message.role}]\n${JSON.stringify(message.content, null, 2)}`;
+	}
+
+	function serializeContext(context: Context): string {
+		const parts: string[] = [];
+		if (context.systemPrompt) {
+			parts.push(`system:${context.systemPrompt}`);
+		}
+		for (const message of context.messages) {
+			parts.push(`${message.role}:${messageToText(message)}`);
+		}
+		if (context.tools?.length) {
+			parts.push(`tools:${JSON.stringify(context.tools)}`);
+		}
+		return parts.join("\n\n");
+	}
+
+	function estimateTokens(text: string): number {
+		return Math.ceil(text.length / 4);
+	}
+
+	// Create the context dump callback — checks setting dynamically so mid-session changes take effect
+	const onContextCallback: Agent["onContext"] = async (context: Context) => {
+		const format = settingsManager.getDumpContextFormat();
+		if (format === "off") {
+			return;
+		}
+		try {
+			const dumpDir = join(cwd, ".pi-debug");
+			if (!existsSync(dumpDir)) {
+				mkdirSync(dumpDir, { recursive: true });
+			}
+			const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+			const ext = format === "json" ? "json" : "txt";
+			const dumpPath = join(dumpDir, `context-${timestamp}.${ext}`);
+
+			let content: string;
+			if (format === "json") {
+				// JSON dump: structured metadata + full context
+				const tokenEstimate = estimateTokens(serializeContext(context));
+				const dumpData = {
+					timestamp,
+					model: model ? { provider: model.provider, id: model.id } : undefined,
+					format: "json",
+					systemPromptLength: context.systemPrompt?.length ?? 0,
+					systemPromptPreview: context.systemPrompt
+						? context.systemPrompt.slice(0, 500) + (context.systemPrompt.length > 500 ? "..." : "")
+						: null,
+					messageCount: context.messages.length,
+					totalTokenEstimate: tokenEstimate,
+					messages: context.messages,
+					tools: context.tools
+						? context.tools.map((t: { name: string; description: string }) => ({
+								name: t.name,
+								description: t.description,
+							}))
+						: undefined,
+				};
+				content = JSON.stringify(dumpData, null, 2);
+			} else {
+				// Text dump: raw serialized context as sent to the LLM
+				content = serializeContext(context);
+			}
+			writeFileSync(dumpPath, content);
+		} catch {
+			// Context dump must not break the LLM call
+		}
+	};
+
 	agent = new Agent({
 		initialState: {
 			systemPrompt: "",
@@ -366,6 +497,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		transport: settingsManager.getTransport(),
 		thinkingBudgets: settingsManager.getThinkingBudgets(),
 		maxRetryDelayMs: settingsManager.getProviderRetrySettings().maxRetryDelayMs,
+		onContext: onContextCallback,
 	});
 
 	// Restore messages if session has existing data
